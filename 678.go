@@ -20,37 +20,44 @@ func main() {
 	reader := bufio.NewReader(os.Stdin)
 
 	fmt.Println("==========================================")
-	fmt.Println("       678 RECORDER - ALL-IN-ONE V10      ")
+	fmt.Println("       678 RECORDER - ALL-IN-ONE V11      ")
 	fmt.Println("==========================================")
 
-	// --- LOGIKA EKSTRAKSI TERSEMBUNYI DENGAN VALIDASI ---
-	tempDir := os.TempDir()
-	ffmpegPath := filepath.Join(tempDir, ".ff_678")
-	certPath := filepath.Join(tempDir, ".cert_678")
+	// --- LOGIKA EKSTRAKSI CACHE PERMANEN (SUPER AMAN) ---
+	// Kita simpan di folder Home pengguna secara permanen agar tidak hilang oleh sistem
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		homeDir = os.Getenv("HOME")
+	}
+	cacheDir := filepath.Join(homeDir, ".678_cache")
+	os.MkdirAll(cacheDir, 0755) // Buat folder jika belum ada
 
-	// Ekstrak ffmpeg hanya jika belum ada di temp
-	if _, err := os.Stat(ffmpegPath); os.IsNotExist(err) {
+	ffmpegPath := filepath.Join(cacheDir, "ffmpeg")
+	certPath := filepath.Join(cacheDir, "pull.cdnsi.com.crt")
+
+	// Ekstrak ffmpeg HANYA jika belum ada atau file rusak (kurang dari 1MB)
+	ffStat, errFF := os.Stat(ffmpegPath)
+	if os.IsNotExist(errFF) || ffStat.Size() < 1000000 {
 		ffData, errRead := embeddedFiles.ReadFile("ffmpeg")
 		if errRead != nil {
 			fmt.Println("[!] FATAL ERROR: Gagal membaca file internal 'ffmpeg'.")
-			fmt.Println("[!] Pastikan file 'ffmpeg' ada di folder saat proses 'go build'.")
 			return
 		}
 		os.WriteFile(ffmpegPath, ffData, 0755)
 	}
 
-	// Ekstrak sertifikat dengan validasi
-	certData, errCert := embeddedFiles.ReadFile("pull.cdnsi.com.crt")
-	if errCert != nil {
-		fmt.Println("[!] FATAL ERROR: Gagal membaca sertifikat 'pull.cdnsi.com.crt'.")
-		fmt.Println("[!] Proses dihentikan karena koneksi HTTPS (SSL) pasti akan ditolak oleh server.")
-		return
+	// Ekstrak sertifikat SSL
+	certStat, errCert := os.Stat(certPath)
+	if os.IsNotExist(errCert) || certStat.Size() == 0 {
+		certData, errRead := embeddedFiles.ReadFile("pull.cdnsi.com.crt")
+		if errRead != nil {
+			fmt.Println("[!] FATAL ERROR: Gagal membaca sertifikat 'pull.cdnsi.com.crt'.")
+			return
+		}
+		os.WriteFile(certPath, certData, 0644)
 	}
-	os.WriteFile(certPath, certData, 0644)
 
-	// Hapus file temp saat program benar-benar berhenti
-	defer os.Remove(ffmpegPath)
-	defer os.Remove(certPath)
+	// KODE "defer os.Remove" SUDAH KITA HAPUS TOTAL DI SINI AGAR TIDAK HILANG SAAT REMUX
 
 	fmt.Print("\n[+] Tempel link 678 terbaru: ")
 	streamURL, _ := reader.ReadString('\n')
@@ -63,7 +70,6 @@ func main() {
 	tempPath := fmt.Sprintf("/sdcard/Download/678_Live_%s.ts", timestamp)
 	finalPath := fmt.Sprintf("/sdcard/Download/678_Live_%s.mp4", timestamp)
 
-	// Menggunakan User-Agent standar agar tidak mudah diblokir server
 	ua := "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 	referer := "https://678.live/"
 
@@ -73,7 +79,7 @@ func main() {
 		"-progress", "pipe:1",
 		"-user_agent", ua,
 		"-headers", fmt.Sprintf("Referer: %s\r\n", referer),
-		"-cafile", certPath, // Menggunakan sertifikat yang diekstrak tadi
+		"-cafile", certPath,
 		"-thread_queue_size", "8192",
 		"-i", streamURL,
 		"-c", "copy",
@@ -120,40 +126,37 @@ func main() {
 
 	// --- VALIDASI DAN LOGIKA REMUXING ---
 
-	// 1. Cek apakah file TS ada dan berisi data
 	tsInfo, errStat := os.Stat(tempPath)
 	if errStat != nil || tsInfo.Size() == 0 {
 		fmt.Println("\n[!] Gagal: File rekaman (.ts) kosong atau tidak ditemukan.")
-		fmt.Println("[!] Pastikan link stream valid dan jaringan lancar.")
-		os.Remove(tempPath) // Bersihkan jika ada file 0 byte
+		os.Remove(tempPath)
 		return
 	}
 
 	fmt.Println("\n[+] Remuxing ke MP4 (File besar butuh waktu, mohon tunggu)...")
+	
+	// Remuxing menggunakan ffmpegPath yang sekarang ada di cache permanen
 	remuxCmd := exec.Command(ffmpegPath, "-i", tempPath, "-c", "copy", "-movflags", "+faststart", "-y", finalPath)
-
-	// Tangkap output jika terjadi error saat remuxing
 	out, errRemux := remuxCmd.CombinedOutput()
+	
 	if errRemux != nil {
 		fmt.Printf("[!] Error saat remuxing: %v\n", errRemux)
 		fmt.Printf("Detail:\n%s\n", string(out))
 		return
 	}
 
-	// 2. Cek apakah file MP4 sukses terbuat
 	mp4Info, errMp4 := os.Stat(finalPath)
 	if errMp4 == nil && mp4Info.Size() > 0 {
 		fmt.Printf("[✓] SELESAI DIBUAT: %s\n", finalPath)
 
-		// 3. Pemicu Media Scanner menggunakan path absolut sistem Android (Aman dari SIGSYS)
+		// Media Scanner (Aman dari SIGSYS)
 		exec.Command("/system/bin/am", "broadcast", "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE", "-d", "file://"+finalPath).Run()
 
-		// 4. Hapus file sampah .ts menggunakan fungsi bawaan Go os.Remove (Tanpa perintah 'rm' eksternal)
+		// Hapus sampah .ts murni via Go
 		if err := os.Remove(tempPath); err != nil {
-			fmt.Printf("[!] Peringatan: Gagal menghapus file sampah .ts secara otomatis.\n")
+			fmt.Printf("[!] Peringatan: Gagal menghapus file sampah .ts otomatis.\n")
 		}
 	} else {
-		fmt.Println("\n[!] Remux selesai, tapi file MP4 kosong atau tidak ditemukan.")
-		fmt.Println("[!] Cek sisa memori internal HP Anda. Pastikan ruang kosong mencukupi.")
+		fmt.Println("\n[!] Remux selesai, tapi file MP4 kosong.")
 	}
 }
