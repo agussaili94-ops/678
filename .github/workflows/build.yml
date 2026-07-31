@@ -17,13 +17,6 @@ jobs:
       with:
         go-version: '1.21'
 
-    - name: Download Static FFmpeg (ARM64)
-      run: |
-        wget https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-arm64-static.tar.xz
-        tar -xf ffmpeg-release-arm64-static.tar.xz
-        mv ffmpeg-*-arm64-static/ffmpeg ./ffmpeg
-        chmod +x ./ffmpeg
-
     - name: Build Go Static Binary (Command Dewa)
       env:
         CGO_ENABLED: 0
@@ -31,6 +24,7 @@ jobs:
         GOARCH: arm64
         GOTOOLCHAIN: local
       run: |
+        # Go akan langsung membungkus ffmpeg NDK asli Anda via //go:embed
         go build -trimpath -ldflags="-s -w -extldflags '-static'" -tags netgo -o 678_recorder 678.go
 
     - name: Upload Artifact
