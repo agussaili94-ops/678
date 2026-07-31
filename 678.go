@@ -119,7 +119,7 @@ func main() {
 	}
 
 	// --- VALIDASI DAN LOGIKA REMUXING ---
-	
+
 	// 1. Cek apakah file TS ada dan berisi data
 	tsInfo, errStat := os.Stat(tempPath)
 	if errStat != nil || tsInfo.Size() == 0 {
@@ -131,7 +131,7 @@ func main() {
 
 	fmt.Println("\n[+] Remuxing ke MP4 (File besar butuh waktu, mohon tunggu)...")
 	remuxCmd := exec.Command(ffmpegPath, "-i", tempPath, "-c", "copy", "-movflags", "+faststart", "-y", finalPath)
-	
+
 	// Tangkap output jika terjadi error saat remuxing
 	out, errRemux := remuxCmd.CombinedOutput()
 	if errRemux != nil {
@@ -144,17 +144,13 @@ func main() {
 	mp4Info, errMp4 := os.Stat(finalPath)
 	if errMp4 == nil && mp4Info.Size() > 0 {
 		fmt.Printf("[✓] SELESAI DIBUAT: %s\n", finalPath)
-		
-		// 3. Pemicu Media Scanner agar file MP4 langsung terbaca di File Manager HP
-		exec.Command("am", "broadcast", "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE", "-d", "file://"+finalPath).Run()
-		
-		// 4. Hapus file sampah .ts (dengan fallback perintah 'rm' jika diblokir sistem Android)
+
+		// 3. Pemicu Media Scanner menggunakan path absolut sistem Android (Aman dari SIGSYS)
+		exec.Command("/system/bin/am", "broadcast", "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE", "-d", "file://"+finalPath).Run()
+
+		// 4. Hapus file sampah .ts menggunakan fungsi bawaan Go os.Remove (Tanpa perintah 'rm' eksternal)
 		if err := os.Remove(tempPath); err != nil {
-			errRm := exec.Command("rm", "-f", tempPath).Run()
-			if errRm != nil {
-				fmt.Printf("[!] File MP4 sukses, tapi sistem memblokir penghapusan otomatis file .ts.\n")
-				fmt.Printf("[!] Silakan hapus manual: %s\n", tempPath)
-			}
+			fmt.Printf("[!] Peringatan: Gagal menghapus file sampah .ts secara otomatis.\n")
 		}
 	} else {
 		fmt.Println("\n[!] Remux selesai, tapi file MP4 kosong atau tidak ditemukan.")

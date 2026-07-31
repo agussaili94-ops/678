@@ -1,4 +1,4 @@
-name: Build 678 Web Recorder (ARM64)
+name: Build 678 Recorder (ARM64)
 
 on:
   push:
@@ -29,21 +29,12 @@ jobs:
         CGO_ENABLED: 0
         GOOS: linux
         GOARCH: arm64
+        GOTOOLCHAIN: local
       run: |
-        go build -trimpath -ldflags="-s -w -extldflags '-static'" -tags netgo -o 678_multi 678_multi.go
-
-    - name: Prepare Release Package
-      run: |
-        # Membuat folder khusus rilis dan mengumpulkan semua file pendukung dashboard
-        mkdir -p release_package
-        mv 678_multi release_package/
-        cp 678_web.py release_package/
-        cp starter.sh release_package/
-        chmod +x release_package/starter.sh
-        chmod +x release_package/678_multi
+        go build -trimpath -ldflags="-s -w -extldflags '-static'" -tags netgo -o 678_recorder 678.go
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: 678_web_recorder_arm64
-        path: release_package/
+        name: 678_recorder_termux_arm64
+        path: 678_recorder
