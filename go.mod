@@ -1,3 +1,3 @@
 module 678_recorder
 
-go 1.26.3
+go 1.21
