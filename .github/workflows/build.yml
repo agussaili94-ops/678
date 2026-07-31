@@ -1,0 +1,39 @@
+name: Build 678 Recorder (Termux/Android)
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+
+    - name: Download Static FFmpeg (ARM64)
+      run: |
+        wget https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-arm64-static.tar.xz
+        tar -xf ffmpeg-release-arm64-static.tar.xz
+        mv ffmpeg-*-arm64-static/ffmpeg ./ffmpeg
+        chmod +x ./ffmpeg
+
+    - name: Build Go Static Binary
+      env:
+        CGO_ENABLED: 0
+        GOOS: linux
+        GOARCH: arm64
+      run: |
+        go build -ldflags="-s -w" -o 678_recorder 678.go
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: 678_recorder_termux_arm64
+        path: 678_recorder
